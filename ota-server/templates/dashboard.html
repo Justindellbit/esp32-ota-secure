@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OTA Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Courier New', monospace;
+      background: #0d1117;
+      color: #c9d1d9;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #21262d;
+    }
+
+    header h1 {
+      font-size: 1.4rem;
+      color: #58a6ff;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .badge {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 0.8rem;
+      color: #8b949e;
+    }
+
+    .badge span { color: #58a6ff; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background: #161b22;
+      border: 1px solid #21262d;
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .stat-card .label {
+      font-size: 0.72rem;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .stat-card .value {
+      font-size: 1.8rem;
+      font-weight: bold;
+      color: #f0f6fc;
+    }
+
+    .stat-card .value.green  { color: #3fb950; }
+    .stat-card .value.yellow { color: #d29922; }
+    .stat-card .value.red    { color: #f85149; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    th {
+      text-align: left;
+      padding: 10px 14px;
+      color: #8b949e;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid #21262d;
+    }
+
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #161b22;
+      vertical-align: middle;
+    }
+
+    tr:hover td { background: #161b22; }
+
+    .dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+
+    .dot.online  { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+    .dot.offline { background: #6e7681; }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: bold;
+    }
+
+    .tag.ok      { background: #0d3a1a; color: #3fb950; border: 1px solid #238636; }
+    .tag.update  { background: #3a1a0d; color: #d29922; border: 1px solid #9e6a03; }
+
+    .refresh {
+      color: #8b949e;
+      font-size: 0.75rem;
+      margin-top: 16px;
+      text-align: right;
+    }
+
+    #empty {
+      text-align: center;
+      padding: 48px;
+      color: #6e7681;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1> OTA Fleet Dashboard</h1>
+  <div class="badge">
+    Serveur firmware: <span>v{{ current_version }}</span>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="stat-card">
+    <div class="label">Total devices</div>
+    <div class="value" id="stat-total">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Online</div>
+    <div class="value green" id="stat-online">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">À jour</div>
+    <div class="value green" id="stat-uptodate">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Mise à jour requise</div>
+    <div class="value yellow" id="stat-outdated">—</div>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Status</th>
+      <th>Device ID</th>
+      <th>Firmware</th>
+      <th>Heap libre</th>
+      <th>RSSI</th>
+      <th>Uptime</th>
+      <th>Vu à</th>
+    </tr>
+  </thead>
+  <tbody id="device-table">
+    <tr><td colspan="7" id="empty">En attente de devices...</td></tr>
+  </tbody>
+</table>
+
+<div class="refresh">Actualisation auto toutes les 5s</div>
+
+<script>
+  function formatUptime(s) {
+    if (s < 60)   return s + 's';
+    if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+    return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm';
+  }
+
+  function formatHeap(b) {
+    return (b / 1024).toFixed(1) + ' KB';
+  }
+
+  function rssiColor(r) {
+    if (r > -60) return '#3fb950';
+    if (r > -75) return '#d29922';
+    return '#f85149';
+  }
+
+  async function refresh() {
+    try {
+      const res = await fetch('/api/devices');
+      const devices = await res.json();
+
+      const online   = devices.filter(d => d.online).length;
+      const uptodate = devices.filter(d => d.up_to_date).length;
+      const outdated = devices.filter(d => !d.up_to_date).length;
+
+      document.getElementById('stat-total').textContent    = devices.length;
+      document.getElementById('stat-online').textContent   = online;
+      document.getElementById('stat-uptodate').textContent = uptodate;
+      document.getElementById('stat-outdated').textContent = outdated;
+
+      const tbody = document.getElementById('device-table');
+
+      if (devices.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" id="empty">En attente de devices...</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = devices.map(d => `
+        <tr>
+          <td>
+            <span class="dot ${d.online ? 'online' : 'offline'}"></span>
+            ${d.online ? 'Online' : 'Offline'}
+          </td>
+          <td style="font-family:monospace;color:#58a6ff">${d.device_id}</td>
+          <td>
+            <span class="tag ${d.up_to_date ? 'ok' : 'update'}">
+              v${d.fw_version}
+            </span>
+          </td>
+          <td>${formatHeap(d.heap)}</td>
+          <td style="color:${rssiColor(d.rssi)}">${d.rssi} dBm</td>
+          <td>${formatUptime(d.uptime_s)}</td>
+          <td style="color:#8b949e">${d.last_seen}</td>
+        </tr>
+      `).join('');
+
+    } catch(e) {
+      console.error('refresh error:', e);
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 5000);
+</script>
+
+</body>
+</html>

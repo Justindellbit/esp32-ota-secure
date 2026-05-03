@@ -1,0 +1,10 @@
+pki/signing.key
+certs/server.key
+firmware/build/
+firmware/sdkconfig
+venv/
+__pycache__/
+*.pyc
+*.bin
+*.sig
+EOF
